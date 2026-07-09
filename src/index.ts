@@ -250,7 +250,9 @@ function body(): string {
     "# TYPE graph_qos_last_refresh_seconds gauge\n" + `graph_qos_last_refresh_seconds ${lastRefresh}\n`;
 }
 
-(async function loop() { await refresh(); setTimeout(loop, REFRESH_MS); })();
+// Retry fast (30s) after a failure so a transient RPC/IPFS blip never leaves us stale for a full
+// window (and never fails a k8s rollout, since readiness gates on the first good refresh).
+(async function loop() { await refresh(); setTimeout(loop, up ? REFRESH_MS : 30_000); })();
 
 Bun.serve({
   port: PORT,
