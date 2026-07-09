@@ -15,8 +15,8 @@
 //   • a per-deployment network aggregate of indexer blocks-behind (from indexer_attempt).
 // Zero npm deps — Bun's global fetch + manual ABI decode.
 
-const RPC_URL = process.env.RPC_URL;
-if (!RPC_URL) { console.error("RPC_URL is required (full JSON-RPC endpoint)"); process.exit(1); }
+const RPC_URL = process.env.RPC_URL;   // required to RUN (checked in the import.meta.main block); not
+                                       // needed to import the module for tests (render/decode are pure).
 
 const IPFS_URL   = (process.env.IPFS_URL ?? "https://ipfs.thegraph.com").replace(/\/+$/, "");
 const CONTRACTS  = (process.env.QOS_CONTRACTS ?? "0x5b4293b4c0f36cb5d4448950830bc777759b6c4f")
@@ -280,6 +280,7 @@ function body(): string {
 export { decodeBytesArg, render };
 
 if (import.meta.main) {
+  if (!RPC_URL) { console.error("RPC_URL is required (full JSON-RPC endpoint)"); process.exit(1); }
   // Retry fast (30s) after a failure so a transient RPC/IPFS blip never leaves us stale for a full
   // window (and never fails a k8s rollout, since readiness gates on the first good refresh).
   (async function loop() { await refresh(); setTimeout(loop, up ? REFRESH_MS : 30_000); })();
