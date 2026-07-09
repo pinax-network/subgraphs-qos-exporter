@@ -3,7 +3,6 @@ FROM oven/bun:1.1-alpine
 
 WORKDIR /app
 COPY src ./src
-COPY deployments.json ./deployments.json
 
 ENV PORT=9090
 EXPOSE 9090

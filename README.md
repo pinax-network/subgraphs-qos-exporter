@@ -55,8 +55,11 @@ answer to "why are/aren't we in the gateway's top-3 here?"). The exporter derive
 | `graph_qos_our_query_rank` / `graph_qos_our_latency_rank` | our rank among indexers (1 = best) |
 | `graph_qos_our_avg_latency_ms` / `graph_qos_our_avg_blocks_behind` | our gateway-measured values |
 
-Per-indexer series (`graph_qos_indexer_*`) are emitted for **tracked** deployments (those in
-`deployments.json`) by default; set `INDEXER_DETAIL=all` for every deployment network-wide.
+Everything is exposed by default — `graph_qos_indexer_*` (per-indexer) and `graph_qos_our_*` (rank
+vs competitors) are emitted for **every** deployment/indexer the gateway reports (~30k series). No
+allow-list to configure. Subgraph **names** are optional: set `NAME_QUERY_URL` (a network-subgraph
+GraphQL endpoint) and the exporter resolves deployment hash → display name into a `name` label;
+unset, series carry the hash only (fully portable). Indexers are identified by their `indexer_url`.
 
 ## Why not the QoS subgraph?
 
@@ -79,11 +82,11 @@ submitter-allowlist coupling and survives future key rotations.
 | `QOS_CONTRACTS` | `0x5b4293b4c0f36cb5d4448950830bc777759b6c4f` | comma-separated DataEdge contract allowlist |
 | `QOS_TOPIC` / `QOS_TOPIC_INDEXER` | the two topics above | override the topics to select |
 | `OUR_INDEXER` | `0x3717cef8…` | our indexer wallet — drives the `graph_qos_our_*` rank/share metrics |
-| `INDEXER_DETAIL` | `tracked` | `tracked` = per-indexer series only for `deployments.json`; `all` = every deployment (thousands of series) |
+| `NAME_QUERY_URL` | *(unset)* | optional network-subgraph GraphQL endpoint; resolves deployment hash → subgraph display name (`name` label). Unset = hash only |
 | `SCAN_BLOCKS` | `180` | recent blocks scanned per refresh (DataEdge emits no events → a block scan is required; early-exits at already-counted windows) |
 | `REFRESH_SECONDS` | `300` | poll cadence (feed is 5-min) |
 | `PORT` | `9090` | |
-| `DEPLOYMENTS_FILE` | `deployments.json` | `{ipfs_hash: name}` label enrichment (also the default per-indexer allow-set) |
+| `OUR_INDEXER` | `0x3717cef8…` | our indexer wallet — drives the `graph_qos_our_*` rank/share metrics |
 
 ## Run
 
