@@ -1,13 +1,17 @@
-// gen-indexers.ts — regenerate indexers.json: { "<indexer_wallet>": "<name>" } for every indexer.
-// Name preference: their ENS primary name (reverse resolution on mainnet) → network-subgraph
-// defaultDisplayName → URL host. Run OUT-OF-BAND (cron/CI); the exporter only reads the file.
-// Usage:
+// gen-indexers.ts — regenerate indexers.json: { "<indexer_wallet>": "<name>" } for every registered
+// indexer with more than MIN_STAKE_GRT staked (default 100000). The stake floor prunes deregistered /
+// unstaked indexers. Name preference: ENS primary name (reverse resolution on mainnet) →
+// network-subgraph defaultDisplayName → URL host. Run OUT-OF-BAND (cron/CI); the exporter only reads
+// the file. Usage:
 //   NETWORK_SUBGRAPH_URL="https://gateway.thegraph.com/api/<key>/subgraphs/id/DZz4…" \
 //   MAINNET_RPC_URL="https://eth.rpc.example/v1/<key>/" \
+//   MIN_STAKE_GRT=100000 \
 //     bun run scripts/gen-indexers.ts > indexers.json
 import { keccak_256 } from "@noble/hashes/sha3.js";
 const NET = process.env.NETWORK_SUBGRAPH_URL;
 const RPC = process.env.MAINNET_RPC_URL ?? "";   // optional; without it, ENS reverse is skipped
+const MIN_STAKE_GRT = Number(process.env.MIN_STAKE_GRT ?? 100000);   // prune deregistered / sub-floor indexers
+const MIN_STAKE_WEI = (BigInt(Math.max(0, Math.round(MIN_STAKE_GRT))) * 10n ** 18n).toString();
 if (!NET) { console.error("NETWORK_SUBGRAPH_URL required"); process.exit(1); }
 
 async function gql(query: string): Promise<any> {
@@ -57,7 +61,7 @@ async function ensReverse(addr: string): Promise<string> {
 const out: Record<string, string> = {};
 let last = "";
 for (;;) {
-  const d = await gql(`{ indexers(first:1000, orderBy:id, where:{id_gt:"${last}"}){ id defaultDisplayName url } }`);
+  const d = await gql(`{ indexers(first:1000, orderBy:id, where:{id_gt:"${last}", stakedTokens_gt:"${MIN_STAKE_WEI}"}){ id defaultDisplayName url } }`);
   const rows = d.indexers ?? [];
   if (!rows.length) break;
   for (const ix of rows) {
@@ -66,8 +70,8 @@ for (;;) {
     out[ix.id.toLowerCase()] = ens || ix.defaultDisplayName || host || "";
   }
   last = rows[rows.length - 1].id;
-  console.error(`… ${Object.keys(out).length} indexers`);
+  console.error(`… ${Object.keys(out).length} indexers (> ${MIN_STAKE_GRT} GRT)`);
 }
 console.log(JSON.stringify(Object.fromEntries(Object.entries(out).sort()), null, 2));
-console.error(`done: ${Object.keys(out).length} indexers (${Object.values(out).filter(Boolean).length} named)`);
+console.error(`done: ${Object.keys(out).length} indexers (${Object.values(out).filter(Boolean).length} named), floor ${MIN_STAKE_GRT} GRT`);
 export {};
