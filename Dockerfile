@@ -3,6 +3,9 @@ FROM oven/bun:1.1-alpine
 
 WORKDIR /app
 COPY src ./src
+# Static name-enrichment data (regenerated out-of-band by scripts/; see README). Committed to the
+# repo so the image ships with them. The exporter treats them as optional at runtime.
+COPY deployments.json indexers.json ./
 
 ENV PORT=9090
 EXPOSE 9090

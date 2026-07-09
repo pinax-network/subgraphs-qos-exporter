@@ -28,12 +28,21 @@ const OUR_INDEXER = (process.env.OUR_INDEXER ?? "0x3717cef8020bddee7a18f4efb2bfa
 const SCAN_BLOCKS = Number(process.env.SCAN_BLOCKS ?? 180);      // ~15 min at 5s blocks
 const REFRESH_MS  = Number(process.env.REFRESH_SECONDS ?? 300) * 1000;
 const PORT        = Number(process.env.PORT ?? 9090);
-// Optional subgraph-name enrichment: a Graph Network subgraph GraphQL endpoint. If set, the
-// exporter resolves deployment IPFS hash → subgraph display name (cached) and adds a `name` label
-// to every series. Unset → metrics carry the deployment hash only (fully portable, no dependency).
-// Point it at any network-subgraph query URL (e.g. an in-cluster GNArb, keyless).
-const NAME_QUERY_URL = process.env.NAME_QUERY_URL ?? "";
-const names = new Map<string, string>();   // deployment hash → subgraph display name ("" if none/unknown)
+// Static name enrichment from local JSON — produced OUT-OF-BAND by scripts/ (see README). The
+// exporter itself performs NO auxiliary queries at runtime; it only reads chain RPC + the IPFS
+// payload and reports. Both files optional (missing → metrics carry hash/wallet only).
+//   deployments.json : { "<ipfs_hash>": "<subgraph display name>" }
+//   indexers.json    : { "<indexer_wallet>": "<ENS / display name>" }
+const DEPLOYMENTS_FILE = process.env.DEPLOYMENTS_FILE ?? "deployments.json";
+const INDEXERS_FILE = process.env.INDEXERS_FILE ?? "indexers.json";
+let names: Record<string, string> = {};          // deployment hash → subgraph name
+let indexerNames: Record<string, string> = {};   // indexer wallet (lowercase) → ENS / name
+try { names = await Bun.file(DEPLOYMENTS_FILE).json(); } catch { /* optional */ }
+try {
+  const raw = (await Bun.file(INDEXERS_FILE).json()) as Record<string, string>;
+  indexerNames = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k.toLowerCase(), v]));
+} catch { /* optional */ }
+console.log(`loaded ${Object.keys(names).length} subgraph names, ${Object.keys(indexerNames).length} indexer names`);
 
 type QRec = {
   subgraph_deployment_ipfs_hash: string; chain: string; gateway_id: string;
@@ -100,26 +109,6 @@ async function fetchIpfs<T>(cid: string): Promise<T[]> {
   return j;
 }
 
-// Resolve deployment IPFS hash → subgraph display name via the network subgraph (NAME_QUERY_URL),
-// caching results (incl. "" for no-name) so each hash is queried at most once. No-op if unset.
-async function resolveNames(hashes: string[]): Promise<void> {
-  if (!NAME_QUERY_URL) return;
-  const unknown = [...new Set(hashes)].filter((h) => !names.has(h));
-  for (let i = 0; i < unknown.length; i += 100) {
-    const batch = unknown.slice(i, i + 100);
-    const q = `{ subgraphDeployments(first:1000, where:{ipfsHash_in:${JSON.stringify(batch)}})`
-      + `{ ipfsHash versions(first:1){ subgraph{ metadata{ displayName } } } } }`;
-    try {
-      const r = await fetch(NAME_QUERY_URL, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: q }),
-      });
-      const j = (await r.json()) as any;
-      for (const d of j?.data?.subgraphDeployments ?? [])
-        names.set(d.ipfsHash, d?.versions?.[0]?.subgraph?.metadata?.displayName ?? "");
-    } catch (e) { console.error(`name resolve error: ${e}`); }
-    for (const h of batch) if (!names.has(h)) names.set(h, "");   // don't re-query unresolved every cycle
-  }
-}
 
 // ── cumulative state (persists across refreshes; resets on restart → VM handles counter reset) ──
 const cumQueries = new Map<string, number>();   // key deployment|chain|gateway -> Σ query_count
@@ -128,7 +117,7 @@ let lastEpoch = 0;                               // newest query_result end_epoc
 
 const esc = (s: unknown) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 const lbl3 = (dep: string, chain: string) =>
-  `deployment="${esc(dep)}",name="${esc(names.get(dep) ?? "")}",chain="${esc(chain)}"`;
+  `deployment="${esc(dep)}",name="${esc(names[dep] ?? "")}",chain="${esc(chain)}"`;
 
 function render(qrRecs: QRec[], iaRecs: IARec[]): string {
   const out: string[] = [];
@@ -220,7 +209,8 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
     }
     // full per-indexer breakdown is the cardinality driver — gate it to tracked deployments.
     for (const r of recs) {   // full per-indexer breakdown for EVERY deployment (network-wide)
-      const il = `${L},indexer="${esc(r.indexer_wallet)}",indexer_url="${esc(r.indexer_url ?? "")}"`;
+      const iname = indexerNames[(r.indexer_wallet ?? "").toLowerCase()] ?? "";
+      const il = `${L},indexer="${esc(r.indexer_wallet)}",indexer_name="${esc(iname)}",indexer_url="${esc(r.indexer_url ?? "")}"`;
       out.push(
         `graph_qos_indexer_query_count{${il}} ${r.query_count ?? 0}`,
         `graph_qos_indexer_avg_latency_ms{${il}} ${r.avg_indexer_latency_ms ?? 0}`,
@@ -254,7 +244,6 @@ async function refresh(): Promise<void> {
     // 2. current-window gauges from the newest payload of each topic.
     const qrRecs = qr.length ? await fetchIpfs<QRec>(qr[0]!.hash) : [];
     const iaRecs = ia.length ? await fetchIpfs<IARec>(ia[0]!.hash) : [];
-    await resolveNames([...qrRecs, ...iaRecs].map((r) => r.subgraph_deployment_ipfs_hash));
     lastGood = render(qrRecs, iaRecs);
     records = qrRecs.length; payloadTs = qr[0]?.ts ?? payloadTs; up = 1;
     console.log(`refreshed: qr=${qr.length} ia=${ia.length} windows, latest ts=${payloadTs}, tracked deployments=${cumQueries.size}`);

@@ -6,9 +6,12 @@
   "private": true,
   "scripts": {
     "start": "bun run src/index.ts",
-    "typecheck": "bun --bun tsc --noEmit"
+    "typecheck": "bun --bun tsc --noEmit",
+    "gen:deployments": "bun run scripts/gen-deployments.ts",
+    "gen:indexers": "bun run scripts/gen-indexers.ts"
   },
   "devDependencies": {
+    "@noble/hashes": "^2.2.0",
     "@types/bun": "latest",
     "typescript": "^5"
   }

@@ -57,9 +57,24 @@ answer to "why are/aren't we in the gateway's top-3 here?"). The exporter derive
 
 Everything is exposed by default — `graph_qos_indexer_*` (per-indexer) and `graph_qos_our_*` (rank
 vs competitors) are emitted for **every** deployment/indexer the gateway reports (~30k series). No
-allow-list to configure. Subgraph **names** are optional: set `NAME_QUERY_URL` (a network-subgraph
-GraphQL endpoint) and the exporter resolves deployment hash → display name into a `name` label;
-unset, series carry the hash only (fully portable). Indexers are identified by their `indexer_url`.
+allow-list to configure.
+
+### Names (static, no runtime queries)
+The exporter performs **no auxiliary queries** — it only reads chain RPC + the IPFS payload. Human
+names come from two **local JSON files** that are regenerated **out-of-band** by `scripts/` and
+committed to the repo (baked into the image):
+
+- **`deployments.json`** — `{ "<ipfs_hash>": "<subgraph display name>" }` for all published subgraphs → `name` label.
+- **`indexers.json`** — `{ "<indexer_wallet>": "<ENS or display name>" }` (ENS primary name where set, else URL host) → `indexer_name` label.
+
+Regenerate periodically (e.g. weekly cron):
+```bash
+NETWORK_SUBGRAPH_URL="https://gateway.thegraph.com/api/<key>/subgraphs/id/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp" \
+  bun run gen:deployments > deployments.json
+NETWORK_SUBGRAPH_URL="…" MAINNET_RPC_URL="https://<mainnet-rpc>/…" \
+  bun run gen:indexers > indexers.json
+```
+Both are optional — without them, series carry the deployment hash / indexer wallet only (fully portable).
 
 ## Why not the QoS subgraph?
 
@@ -82,11 +97,10 @@ submitter-allowlist coupling and survives future key rotations.
 | `QOS_CONTRACTS` | `0x5b4293b4c0f36cb5d4448950830bc777759b6c4f` | comma-separated DataEdge contract allowlist |
 | `QOS_TOPIC` / `QOS_TOPIC_INDEXER` | the two topics above | override the topics to select |
 | `OUR_INDEXER` | `0x3717cef8…` | our indexer wallet — drives the `graph_qos_our_*` rank/share metrics |
-| `NAME_QUERY_URL` | *(unset)* | optional network-subgraph GraphQL endpoint; resolves deployment hash → subgraph display name (`name` label). Unset = hash only |
 | `SCAN_BLOCKS` | `180` | recent blocks scanned per refresh (DataEdge emits no events → a block scan is required; early-exits at already-counted windows) |
 | `REFRESH_SECONDS` | `300` | poll cadence (feed is 5-min) |
 | `PORT` | `9090` | |
-| `OUR_INDEXER` | `0x3717cef8…` | our indexer wallet — drives the `graph_qos_our_*` rank/share metrics |
+| `DEPLOYMENTS_FILE` / `INDEXERS_FILE` | `deployments.json` / `indexers.json` | local name-map files (see Names) |
 
 ## Run
 
