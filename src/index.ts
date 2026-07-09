@@ -179,19 +179,8 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
       `graph_qos_avg_indexer_blocks_behind{${L}} ${totalQ ? wbb / totalQ : 0}`,
       `graph_qos_max_indexer_blocks_behind{${L}} ${maxbb}`,
     );
-    if (!(dep! in NAMES) && !INDEXER_DETAIL_ALL) continue;   // per-indexer detail only where wanted
-    for (const r of recs) {
-      const il = `${L},indexer="${esc(r.indexer_wallet)}",indexer_url="${esc(r.indexer_url ?? "")}"`;
-      out.push(
-        `graph_qos_indexer_query_count{${il}} ${r.query_count ?? 0}`,
-        `graph_qos_indexer_avg_latency_ms{${il}} ${r.avg_indexer_latency_ms ?? 0}`,
-        `graph_qos_indexer_max_latency_ms{${il}} ${r.max_indexer_latency_ms ?? 0}`,
-        `graph_qos_indexer_success_rate{${il}} ${r.proportion_indexer_200_responses ?? 0}`,
-        `graph_qos_indexer_avg_blocks_behind{${il}} ${r.avg_indexer_blocks_behind ?? 0}`,
-        `graph_qos_indexer_max_blocks_behind{${il}} ${r.max_indexer_blocks_behind ?? 0}`,
-      );
-    }
-    // where do WE rank on this subgraph? (by queries won, and by latency)
+    // where do WE rank on this subgraph? Computed for EVERY deployment — cheap, and only actually
+    // emits where our wallet appears (i.e. the subgraphs the gateway attempted us on = ours).
     const byQ = [...recs].sort((a, b) => (b.query_count ?? 0) - (a.query_count ?? 0));
     const byLat = [...recs].sort((a, b) => (a.avg_indexer_latency_ms ?? 1e12) - (b.avg_indexer_latency_ms ?? 1e12));
     const qi = byQ.findIndex((r) => (r.indexer_wallet ?? "").toLowerCase() === OUR_INDEXER);
@@ -205,6 +194,19 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
         `graph_qos_our_latency_rank{${L}} ${li + 1}`,
         `graph_qos_our_avg_latency_ms{${L}} ${our.avg_indexer_latency_ms ?? 0}`,
         `graph_qos_our_avg_blocks_behind{${L}} ${our.avg_indexer_blocks_behind ?? 0}`,
+      );
+    }
+    // full per-indexer breakdown is the cardinality driver — gate it to tracked deployments.
+    if (!(dep! in NAMES) && !INDEXER_DETAIL_ALL) continue;
+    for (const r of recs) {
+      const il = `${L},indexer="${esc(r.indexer_wallet)}",indexer_url="${esc(r.indexer_url ?? "")}"`;
+      out.push(
+        `graph_qos_indexer_query_count{${il}} ${r.query_count ?? 0}`,
+        `graph_qos_indexer_avg_latency_ms{${il}} ${r.avg_indexer_latency_ms ?? 0}`,
+        `graph_qos_indexer_max_latency_ms{${il}} ${r.max_indexer_latency_ms ?? 0}`,
+        `graph_qos_indexer_success_rate{${il}} ${r.proportion_indexer_200_responses ?? 0}`,
+        `graph_qos_indexer_avg_blocks_behind{${il}} ${r.avg_indexer_blocks_behind ?? 0}`,
+        `graph_qos_indexer_max_blocks_behind{${il}} ${r.max_indexer_blocks_behind ?? 0}`,
       );
     }
   }
