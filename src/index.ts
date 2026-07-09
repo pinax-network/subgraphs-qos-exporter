@@ -145,6 +145,7 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
 
   // ── indexer_attempt: network view (ALL) + per-indexer detail + our rank (tracked) ──
   help("graph_qos_network_indexers", "gauge", "number of indexers the gateway attempted per deployment");
+  help("graph_qos_avg_indexer_latency_ms", "gauge", "network avg indexer latency per deployment, query-weighted");
   help("graph_qos_avg_indexer_blocks_behind", "gauge", "network avg indexer blocks-behind per deployment, query-weighted");
   help("graph_qos_max_indexer_blocks_behind", "gauge", "worst indexer blocks-behind per deployment");
   if (iaRecs.length) {
@@ -172,10 +173,12 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
     const [dep, chain] = k.split("|");
     const L = lbl3(dep!, chain!);
     const totalQ = recs.reduce((s, r) => s + (r.query_count ?? 0), 0);
+    const wlat = recs.reduce((s, r) => s + (r.avg_indexer_latency_ms ?? 0) * (r.query_count ?? 0), 0);
     const wbb = recs.reduce((s, r) => s + (r.avg_indexer_blocks_behind ?? 0) * (r.query_count ?? 0), 0);
     const maxbb = recs.reduce((m, r) => Math.max(m, r.max_indexer_blocks_behind ?? 0), 0);
     out.push(
       `graph_qos_network_indexers{${L}} ${new Set(recs.map((r) => r.indexer_wallet)).size}`,
+      `graph_qos_avg_indexer_latency_ms{${L}} ${totalQ ? wlat / totalQ : 0}`,
       `graph_qos_avg_indexer_blocks_behind{${L}} ${totalQ ? wbb / totalQ : 0}`,
       `graph_qos_max_indexer_blocks_behind{${L}} ${maxbb}`,
     );
