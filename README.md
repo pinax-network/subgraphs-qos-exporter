@@ -20,13 +20,13 @@ There are **two topics**, each a 5-min window:
 | `start_epoch` / `end_epoch` | `1783554000` / `…300` | → `graph_qos_payload_timestamp_seconds` |
 | `query_count` | `42119` | ✅ `graph_qos_query_count` (window) · `graph_qos_queries_total` (counter) |
 | `total_query_fees` | `47.408` GRT | ✅ `graph_qos_query_fees_grt_total` (counter) |
-| `avg_query_fee` / `max_query_fee` | `0.001126` / `0.001147` | ✅ `graph_qos_avg_query_fee_grt` (avg only) |
+| `avg_query_fee` / `max_query_fee` | `0.001126` / `0.001147` | ✅ `graph_qos_avg_query_fee_grt` · `graph_qos_max_query_fee_grt` |
 | `gateway_query_success_rate` | `1.0` | ✅ `graph_qos_success_rate` |
 | `user_attributed_error_rate` | `0.0` | ✅ `graph_qos_user_error_rate` |
 | `avg_gateway_latency_ms` | `357.5` | ✅ `graph_qos_avg_gateway_latency_ms` |
 | `max_gateway_latency_ms` | `15066` | ✅ `graph_qos_max_gateway_latency_ms` |
-| `stdev_gateway_latency_ms` | `489.4` | ⬜ not yet exported |
-| `most_recent_query_ts` | `1783554299949` | ⬜ not exported |
+| `stdev_gateway_latency_ms` | `489.4` | ✅ `graph_qos_stdev_gateway_latency_ms` |
+| `most_recent_query_ts` | `1783554299949` | ✅ `graph_qos_most_recent_query_seconds` |
 
 ### 2. `gateway_indexer_attempt_qos_5_minutes_prod_v3` — **per-indexer**, per subgraph
 ~2,708 records/window, keyed by **(indexer_wallet, indexer_url, deployment, chain, gateway)**:
@@ -37,10 +37,10 @@ There are **two topics**, each a 5-min window:
 | `indexer_url` | `https://graph-l2prod.ellipfra.com/` | → `indexer_url` label |
 | `subgraph_deployment_ipfs_hash` / `chain` / `gateway_id` | `Qmbsc6XQ…` / `base` / `0xff4b…` | → labels |
 | `query_count` | `42119` | ✅ `graph_qos_indexer_query_count` |
-| `avg/max/stdev_indexer_latency_ms` | `355` / `15064` / `489` | ✅ `graph_qos_indexer_avg_latency_ms` · `…_max_latency_ms` (stdev ⬜) |
+| `avg/max/stdev_indexer_latency_ms` | `355` / `15064` / `489` | ✅ `graph_qos_indexer_avg_latency_ms` · `…_max_latency_ms` · `…_stdev_latency_ms` |
 | `num_indexer_200_responses` / `proportion_indexer_200_responses` | `42119` / `1.0` | ✅ `graph_qos_indexer_success_rate` (proportion) |
 | `avg_indexer_blocks_behind` / `max_indexer_blocks_behind` | `9.34` / `91` | ✅ `graph_qos_indexer_avg_blocks_behind` · `…_max_blocks_behind` |
-| `avg/max/total_query_fees` | per-indexer fees | ⬜ not yet exported |
+| `avg/max/total_query_fees` | per-indexer fees | ✅ `graph_qos_indexer_avg_query_fee_grt` · `…_max_query_fee_grt` · `…_query_fees_grt` |
 
 **Why this matters (the per-indexer topic):** it carries *each indexer's* gateway-measured latency,
 success proportion and blocks-behind per subgraph — so we can extract **our own indexer's exact

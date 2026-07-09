@@ -46,13 +46,15 @@ console.log(`loaded ${Object.keys(names).length} subgraph names, ${Object.keys(i
 
 type QRec = {
   subgraph_deployment_ipfs_hash: string; chain: string; gateway_id: string;
-  query_count: number; total_query_fees: number; avg_query_fee: number;
+  query_count: number; total_query_fees: number; avg_query_fee: number; max_query_fee: number;
   gateway_query_success_rate: number; user_attributed_error_rate: number;
-  avg_gateway_latency_ms: number; max_gateway_latency_ms: number;
+  avg_gateway_latency_ms: number; max_gateway_latency_ms: number; stdev_gateway_latency_ms: number;
+  most_recent_query_ts: number;
 };
 type IARec = {
   subgraph_deployment_ipfs_hash: string; chain: string; indexer_wallet: string; indexer_url: string;
-  query_count: number; avg_indexer_latency_ms: number; max_indexer_latency_ms: number;
+  query_count: number; avg_query_fee: number; max_query_fee: number; total_query_fees: number;
+  avg_indexer_latency_ms: number; max_indexer_latency_ms: number; stdev_indexer_latency_ms: number;
   proportion_indexer_200_responses: number;
   avg_indexer_blocks_behind: number; max_indexer_blocks_behind: number;
 };
@@ -125,17 +127,21 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
 
   // ── current-window gateway QoS (gauges) ──
   for (const g of ["graph_qos_query_count", "graph_qos_avg_gateway_latency_ms",
-    "graph_qos_max_gateway_latency_ms", "graph_qos_success_rate", "graph_qos_user_error_rate",
-    "graph_qos_avg_query_fee_grt"]) help(g, "gauge", "network-wide gateway QoS, latest 5-min window");
+    "graph_qos_max_gateway_latency_ms", "graph_qos_stdev_gateway_latency_ms", "graph_qos_success_rate",
+    "graph_qos_user_error_rate", "graph_qos_avg_query_fee_grt", "graph_qos_max_query_fee_grt",
+    "graph_qos_most_recent_query_seconds"]) help(g, "gauge", "network-wide gateway QoS, latest 5-min window");
   for (const r of qrRecs) {
     const l = `${lbl3(r.subgraph_deployment_ipfs_hash, r.chain)},gateway="${esc(r.gateway_id)}"`;
     out.push(
       `graph_qos_query_count{${l}} ${r.query_count}`,
       `graph_qos_avg_gateway_latency_ms{${l}} ${r.avg_gateway_latency_ms}`,
       `graph_qos_max_gateway_latency_ms{${l}} ${r.max_gateway_latency_ms}`,
+      `graph_qos_stdev_gateway_latency_ms{${l}} ${r.stdev_gateway_latency_ms ?? 0}`,
       `graph_qos_success_rate{${l}} ${r.gateway_query_success_rate}`,
       `graph_qos_user_error_rate{${l}} ${r.user_attributed_error_rate}`,
       `graph_qos_avg_query_fee_grt{${l}} ${r.avg_query_fee}`,
+      `graph_qos_max_query_fee_grt{${l}} ${r.max_query_fee ?? 0}`,
+      `graph_qos_most_recent_query_seconds{${l}} ${(r.most_recent_query_ts ?? 0) / 1000}`,
     );
   }
 
@@ -161,9 +167,13 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
       ["graph_qos_indexer_query_count", "per-indexer queries the gateway routed for a deployment (5-min)"],
       ["graph_qos_indexer_avg_latency_ms", "per-indexer gateway-measured avg latency"],
       ["graph_qos_indexer_max_latency_ms", "per-indexer gateway-measured max latency"],
+      ["graph_qos_indexer_stdev_latency_ms", "per-indexer gateway-measured latency stdev"],
       ["graph_qos_indexer_success_rate", "per-indexer 200-response proportion (0-1)"],
       ["graph_qos_indexer_avg_blocks_behind", "per-indexer avg blocks-behind"],
       ["graph_qos_indexer_max_blocks_behind", "per-indexer max blocks-behind"],
+      ["graph_qos_indexer_avg_query_fee_grt", "per-indexer avg query fee (GRT)"],
+      ["graph_qos_indexer_max_query_fee_grt", "per-indexer max query fee (GRT)"],
+      ["graph_qos_indexer_query_fees_grt", "per-indexer total query fees this window (GRT)"],
       ["graph_qos_our_query_count", "OUR indexer's queries for a deployment (5-min)"],
       ["graph_qos_our_query_share", "OUR share of indexer queries for a deployment (0-1)"],
       ["graph_qos_our_query_rank", "OUR rank by queries among indexers on a deployment (1=most)"],
@@ -215,9 +225,13 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
         `graph_qos_indexer_query_count{${il}} ${r.query_count ?? 0}`,
         `graph_qos_indexer_avg_latency_ms{${il}} ${r.avg_indexer_latency_ms ?? 0}`,
         `graph_qos_indexer_max_latency_ms{${il}} ${r.max_indexer_latency_ms ?? 0}`,
+        `graph_qos_indexer_stdev_latency_ms{${il}} ${r.stdev_indexer_latency_ms ?? 0}`,
         `graph_qos_indexer_success_rate{${il}} ${r.proportion_indexer_200_responses ?? 0}`,
         `graph_qos_indexer_avg_blocks_behind{${il}} ${r.avg_indexer_blocks_behind ?? 0}`,
         `graph_qos_indexer_max_blocks_behind{${il}} ${r.max_indexer_blocks_behind ?? 0}`,
+        `graph_qos_indexer_avg_query_fee_grt{${il}} ${r.avg_query_fee ?? 0}`,
+        `graph_qos_indexer_max_query_fee_grt{${il}} ${r.max_query_fee ?? 0}`,
+        `graph_qos_indexer_query_fees_grt{${il}} ${r.total_query_fees ?? 0}`,
       );
     }
   }
@@ -261,22 +275,25 @@ function body(): string {
     "# TYPE graph_qos_last_refresh_seconds gauge\n" + `graph_qos_last_refresh_seconds ${lastRefresh}\n`;
 }
 
-// Retry fast (30s) after a failure so a transient RPC/IPFS blip never leaves us stale for a full
-// window (and never fails a k8s rollout, since readiness gates on the first good refresh).
-(async function loop() { await refresh(); setTimeout(loop, up ? REFRESH_MS : 30_000); })();
+// Pure functions exported for unit tests (bun test). Only start the poller + HTTP server when run
+// as the entrypoint, so importing this module in a test has no side effects.
+export { decodeBytesArg, render };
 
-Bun.serve({
-  port: PORT,
-  fetch(req) {
-    const path = new URL(req.url).pathname;
-    if (path === "/metrics" || path === "/")
-      return new Response(body(), { headers: { "content-type": "text/plain; version=0.0.4" } });
-    if (path === "/healthz")
-      return new Response(up ? "ok" : "degraded", { status: up ? 200 : 503 });
-    return new Response("not found", { status: 404 });
-  },
-});
-console.log(`qos-exporter on :${PORT} — contracts=${CONTRACTS.join(",")} topics=[${TOPIC_QR}, ${TOPIC_IA}] refresh=${REFRESH_MS / 1000}s`);
+if (import.meta.main) {
+  // Retry fast (30s) after a failure so a transient RPC/IPFS blip never leaves us stale for a full
+  // window (and never fails a k8s rollout, since readiness gates on the first good refresh).
+  (async function loop() { await refresh(); setTimeout(loop, up ? REFRESH_MS : 30_000); })();
 
-// Top-level await (deployments.json load) requires this file to be a module.
-export {};
+  Bun.serve({
+    port: PORT,
+    fetch(req) {
+      const path = new URL(req.url).pathname;
+      if (path === "/metrics" || path === "/")
+        return new Response(body(), { headers: { "content-type": "text/plain; version=0.0.4" } });
+      if (path === "/healthz")
+        return new Response(up ? "ok" : "degraded", { status: up ? 200 : 503 });
+      return new Response("not found", { status: 404 });
+    },
+  });
+  console.log(`qos-exporter on :${PORT} — contracts=${CONTRACTS.join(",")} topics=[${TOPIC_QR}, ${TOPIC_IA}] refresh=${REFRESH_MS / 1000}s`);
+}

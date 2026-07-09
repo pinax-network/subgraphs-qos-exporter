@@ -30,6 +30,6 @@ for (;;) {
   last = rows[rows.length - 1].id;
   console.error(`… ${Object.keys(out).length} named deployments so far`);
 }
-console.log(JSON.stringify(out, null, 0));
+console.log(JSON.stringify(Object.fromEntries(Object.entries(out).sort()), null, 2));
 console.error(`done: ${Object.keys(out).length} deployment names`);
 export {};
