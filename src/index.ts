@@ -106,9 +106,10 @@ async function fetchIpfs<T>(cid: string): Promise<T[]> {
     method: "POST", headers: { "user-agent": "subgraphs-qos-exporter" },
   });
   if (!r.ok) throw new Error(`ipfs cat ${cid}: HTTP ${r.status}`);
-  const j = (await r.json()) as T[];
-  _cache.set(cid, j);
-  return j;
+  const j = await r.json();                       // a bad/empty IPFS response can be null/non-array;
+  const arr = Array.isArray(j) ? (j as T[]) : []; // never let that crash render (was: iaRecs.length).
+  _cache.set(cid, arr);
+  return arr;
 }
 
 
