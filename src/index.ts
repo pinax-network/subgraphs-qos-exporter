@@ -23,8 +23,18 @@ const CONTRACTS  = (process.env.QOS_CONTRACTS ?? "0x5b4293b4c0f36cb5d4448950830b
   .split(",").map((c) => c.trim().toLowerCase()).filter(Boolean);
 const TOPIC_QR = process.env.QOS_TOPIC ?? "gateway_query_result_qos_5_minutes_prod_v3";
 const TOPIC_IA = process.env.QOS_TOPIC_INDEXER ?? "gateway_indexer_attempt_qos_5_minutes_prod_v3";
-// Our indexer wallet — drives the graph_qos_our_* rank/share metrics.
-const OUR_INDEXER = (process.env.OUR_INDEXER ?? "0x3717cef8020bddee7a18f4efb2bfa88fefdcb1bc").toLowerCase();
+// Our indexer wallets. OUR_INDEXER remains a backwards-compatible single-wallet override;
+// OUR_INDEXERS enables per-wallet metrics for an entire operator fleet. The first wallet remains
+// the primary one used by the legacy, unlabeled graph_qos_our_* metrics.
+const DEFAULT_OUR_INDEXERS = [
+  "0x3717cef8020bddee7a18f4efb2bfa88fefdcb1bc", // pinax2.eth
+  "0xedca8740873152ff30a2696add66d1ab41882beb", // pinax.eth
+];
+const configuredOurIndexers = process.env.OUR_INDEXERS ?? process.env.OUR_INDEXER
+  ?? DEFAULT_OUR_INDEXERS.join(",");
+const OUR_INDEXERS = [...new Set(configuredOurIndexers.split(",")
+  .map((wallet) => wallet.trim().toLowerCase()).filter(Boolean))];
+const OUR_INDEXER = OUR_INDEXERS[0] ?? DEFAULT_OUR_INDEXERS[0]!;
 const SCAN_BLOCKS = Number(process.env.SCAN_BLOCKS ?? 180);      // ~15 min at 5s blocks
 const REFRESH_MS  = Number(process.env.REFRESH_SECONDS ?? 300) * 1000;
 const PORT        = Number(process.env.PORT ?? 9090);
@@ -181,6 +191,13 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
       ["graph_qos_our_latency_rank", "OUR rank by avg latency among indexers (1=fastest)"],
       ["graph_qos_our_avg_latency_ms", "OUR gateway-measured avg latency for a deployment"],
       ["graph_qos_our_avg_blocks_behind", "OUR avg blocks-behind for a deployment"],
+      ["graph_qos_our_indexer_query_count", "tracked indexer's queries for a deployment (5-min)"],
+      ["graph_qos_our_indexer_query_share", "tracked indexer's share of queries for a deployment (0-1)"],
+      ["graph_qos_our_indexer_query_rank", "tracked indexer's rank by queries among indexers (1=most)"],
+      ["graph_qos_our_indexer_latency_rank", "tracked indexer's rank by avg latency (1=fastest)"],
+      ["graph_qos_our_indexer_avg_latency_ms", "tracked indexer's gateway-measured avg latency"],
+      ["graph_qos_our_indexer_avg_blocks_behind", "tracked indexer's avg blocks-behind"],
+      ["graph_qos_our_indexer_query_fees_grt", "tracked indexer's query fees for a deployment (5-min)"],
     ] as const) help(g, "gauge", h);
   }
   const byDep = new Map<string, IARec[]>();
@@ -201,15 +218,27 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
       `graph_qos_avg_indexer_blocks_behind{${L}} ${totalQ ? wbb / totalQ : 0}`,
       `graph_qos_max_indexer_blocks_behind{${L}} ${maxbb}`,
     );
-    // where do WE rank on this subgraph? Computed for EVERY deployment — cheap, and only actually
-    // emits where our wallet appears (i.e. the subgraphs the gateway attempted us on = ours).
+    // Where do our tracked wallets rank on this subgraph? Emit only wallets the gateway attempted.
     const byQ = [...recs].sort((a, b) => (b.query_count ?? 0) - (a.query_count ?? 0));
     const byLat = [...recs].sort((a, b) => (a.avg_indexer_latency_ms ?? 1e12) - (b.avg_indexer_latency_ms ?? 1e12));
-    const qi = byQ.findIndex((r) => (r.indexer_wallet ?? "").toLowerCase() === OUR_INDEXER);
-    if (qi >= 0) {
+    for (const wallet of OUR_INDEXERS) {
+      const qi = byQ.findIndex((r) => (r.indexer_wallet ?? "").toLowerCase() === wallet);
+      if (qi < 0) continue;
       const our = byQ[qi]!;
-      const li = byLat.findIndex((r) => (r.indexer_wallet ?? "").toLowerCase() === OUR_INDEXER);
+      const li = byLat.findIndex((r) => (r.indexer_wallet ?? "").toLowerCase() === wallet);
+      const iname = indexerNames[wallet] ?? "";
+      const OL = `${L},indexer="${esc(wallet)}",indexer_name="${esc(iname)}"`;
       out.push(
+        `graph_qos_our_indexer_query_count{${OL}} ${our.query_count ?? 0}`,
+        `graph_qos_our_indexer_query_share{${OL}} ${totalQ ? (our.query_count ?? 0) / totalQ : 0}`,
+        `graph_qos_our_indexer_query_rank{${OL}} ${qi + 1}`,
+        `graph_qos_our_indexer_latency_rank{${OL}} ${li + 1}`,
+        `graph_qos_our_indexer_avg_latency_ms{${OL}} ${our.avg_indexer_latency_ms ?? 0}`,
+        `graph_qos_our_indexer_avg_blocks_behind{${OL}} ${our.avg_indexer_blocks_behind ?? 0}`,
+        `graph_qos_our_indexer_query_fees_grt{${OL}} ${our.total_query_fees ?? 0}`,
+      );
+      // Preserve the original single-series metrics for existing dashboards and alerts.
+      if (wallet === OUR_INDEXER) out.push(
         `graph_qos_our_query_count{${L}} ${our.query_count ?? 0}`,
         `graph_qos_our_query_share{${L}} ${totalQ ? (our.query_count ?? 0) / totalQ : 0}`,
         `graph_qos_our_query_rank{${L}} ${qi + 1}`,
