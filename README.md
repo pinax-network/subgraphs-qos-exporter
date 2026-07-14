@@ -52,8 +52,9 @@ answer to "why are/aren't we in the gateway's top-3 here?"). The exporter derive
 | `graph_qos_network_indexers` | how many indexers the gateway attempted |
 | `graph_qos_avg_indexer_blocks_behind` / `…_max_…` | network blocks-behind (query-weighted / worst) |
 | `graph_qos_our_query_count` / `graph_qos_our_query_share` | our queries / our share of them (0–1) |
-| `graph_qos_our_query_rank` / `graph_qos_our_latency_rank` | our rank among indexers (1 = best) |
+| `graph_qos_our_query_rank` / `graph_qos_our_latency_rank` | primary tracked indexer's rank (legacy single-series metrics; 1 = best) |
 | `graph_qos_our_avg_latency_ms` / `graph_qos_our_avg_blocks_behind` | our gateway-measured values |
+| `graph_qos_our_indexer_*{indexer,indexer_name}` | the same count/share/rank/latency/blocks/fees metrics for every wallet in `OUR_INDEXERS` |
 
 Everything is exposed by default — `graph_qos_indexer_*` (per-indexer) and `graph_qos_our_*` (rank
 vs competitors) are emitted for **every** deployment/indexer the gateway reports (~30k series). No
@@ -96,7 +97,8 @@ submitter-allowlist coupling and survives future key rotations.
 | `IPFS_URL` | `https://ipfs.thegraph.com` | base for `POST /api/v0/cat?arg=<cid>` (a kubo API; point at your own for reliability) |
 | `QOS_CONTRACTS` | `0x5b4293b4c0f36cb5d4448950830bc777759b6c4f` | comma-separated DataEdge contract allowlist |
 | `QOS_TOPIC` / `QOS_TOPIC_INDEXER` | the two topics above | override the topics to select |
-| `OUR_INDEXER` | `0x3717cef8…` | our indexer wallet — drives the `graph_qos_our_*` rank/share metrics |
+| `OUR_INDEXERS` | `0x3717cef8…`,`0xedca8740…` | comma-separated tracked wallets — drives per-wallet `graph_qos_our_indexer_*` metrics; defaults to pinax2.eth + pinax.eth |
+| `OUR_INDEXER` | unset | backwards-compatible single-wallet override; when used, only that wallet is tracked |
 | `SCAN_BLOCKS` | `180` | recent blocks scanned per refresh (DataEdge emits no events → a block scan is required; early-exits at already-counted windows) |
 | `REFRESH_SECONDS` | `300` | poll cadence (feed is 5-min) |
 | `PORT` | `9090` | |

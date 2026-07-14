@@ -42,6 +42,7 @@ const ia = (wallet: string, o: Partial<any>) => ({
   proportion_indexer_200_responses: 1, avg_indexer_blocks_behind: 0.3, max_indexer_blocks_behind: 1, ...o,
 });
 const OUR = "0x3717cef8020bddee7a18f4efb2bfa88fefdcb1bc"; // matches default OUR_INDEXER
+const PINAX1 = "0xedca8740873152ff30a2696add66d1ab41882beb";
 
 describe("render", () => {
   const out = render(
@@ -68,11 +69,42 @@ describe("render", () => {
     expect(out).toMatch(/graph_qos_our_latency_rank\{[^}]*\} 2/);
     // our share = 100/900 = 0.111…
     expect(out).toMatch(/graph_qos_our_query_share\{[^}]*\} 0\.111/);
+    expect(out).toMatch(/graph_qos_our_indexer_query_rank\{[^}]*indexer="0x3717[^}]*\} 3/);
   });
   test("emits per-indexer detail incl. fee fields", () => {
     expect(out).toContain("graph_qos_indexer_query_count{");
     expect(out).toContain("graph_qos_indexer_query_fees_grt{");
     expect(out).toContain("graph_qos_indexer_stdev_latency_ms{");
+  });
+});
+
+describe("multi-indexer tracking", () => {
+  const out = render([], [
+    ia("0xaaa", { query_count: 500, avg_indexer_latency_ms: 100 }),
+    ia(PINAX1, { query_count: 300, avg_indexer_latency_ms: 400, total_query_fees: 0.3 }),
+    ia(OUR, { query_count: 100, avg_indexer_latency_ms: 250, total_query_fees: 0.1 }),
+  ]);
+
+  test("emits independently ranked series for both configured Pinax wallets", () => {
+    expect(out).toMatch(/graph_qos_our_indexer_query_rank\{[^}]*indexer="0x3717[^}]*\} 3/);
+    expect(out).toMatch(/graph_qos_our_indexer_query_rank\{[^}]*indexer="0xedca[^}]*\} 2/);
+    expect(out).toMatch(/graph_qos_our_indexer_latency_rank\{[^}]*indexer="0x3717[^}]*\} 2/);
+    expect(out).toMatch(/graph_qos_our_indexer_latency_rank\{[^}]*indexer="0xedca[^}]*\} 3/);
+    expect(out).toMatch(/graph_qos_our_indexer_query_fees_grt\{[^}]*indexer="0xedca[^}]*\} 0\.3/);
+  });
+
+  test("keeps legacy graph_qos_our metrics tied to the primary wallet", () => {
+    expect(out).toMatch(/graph_qos_our_query_rank\{[^}]*\} 3/);
+    expect(out).not.toMatch(/graph_qos_our_query_rank\{[^}]*indexer=/);
+  });
+
+  test("reports the secondary wallet even when the primary wallet was not attempted", () => {
+    const secondaryOnly = render([], [
+      ia("0xaaa", { query_count: 500 }),
+      ia(PINAX1, { query_count: 300 }),
+    ]);
+    expect(secondaryOnly).toMatch(/graph_qos_our_indexer_query_rank\{[^}]*indexer="0xedca[^}]*\} 2/);
+    expect(secondaryOnly).not.toMatch(/graph_qos_our_query_rank\{/);
   });
 });
 
