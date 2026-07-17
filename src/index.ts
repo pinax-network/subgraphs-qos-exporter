@@ -168,8 +168,14 @@ function clearOurIndexerTotals(): void {
 }
 
 const esc = (s: unknown) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+// Display name for a deployment: the published subgraph display name when known
+// (deployments.json), otherwise a short deployment ID (truncated hash) rather than
+// the full IPFS hash — for subgraphs the gateway has no displayName for (older
+// versions, unpublished, or test subgraphs). The chain has its own label, so the
+// name stays purely the semantic name and isn't network-prefixed.
+const displayName = (dep: string): string => names[dep] ?? dep.slice(0, 10);
 const lbl3 = (dep: string, chain: string) =>
-  `deployment="${esc(dep)}",name="${esc(names[dep] ?? "")}",chain="${esc(chain)}"`;
+  `deployment="${esc(dep)}",name="${esc(displayName(dep))}",chain="${esc(chain)}"`;
 
 function render(qrRecs: QRec[], iaRecs: IARec[]): string {
   const out: string[] = [];
