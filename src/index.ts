@@ -65,7 +65,7 @@ type IARec = {
   subgraph_deployment_ipfs_hash: string; chain: string; indexer_wallet: string; indexer_url: string;
   query_count: number; avg_query_fee: number; max_query_fee: number; total_query_fees: number;
   avg_indexer_latency_ms: number; max_indexer_latency_ms: number; stdev_indexer_latency_ms: number;
-  proportion_indexer_200_responses: number;
+  num_indexer_200_responses?: number; proportion_indexer_200_responses: number;
   avg_indexer_blocks_behind: number; max_indexer_blocks_behind: number;
 };
 type Found = { hash: string; ts: number };
@@ -128,6 +128,45 @@ const cumQueries = new Map<string, number>();   // key deployment|chain|gateway 
 const cumFees = new Map<string, number>();       // key deployment|chain|gateway -> Σ total_query_fees
 let lastEpoch = 0;                               // newest query_result end_epoch already counted
 
+type OurIndexerTotals = {
+  queries: number;
+  successfulQueries: number;
+  feesGrt: number;
+  latencySecondsSum: number;
+  blocksBehindSum: number;
+};
+// key deployment|chain|wallet -> cumulative tracked-wallet totals. These range-safe counters are the
+// source for selector-aware Grafana macro metrics; VM's increase() handles resets after a pod restart.
+const cumOurIndexerTotals = new Map<string, OurIndexerTotals>();
+let lastIaEpoch = 0;                              // newest indexer_attempt end_epoch already counted
+
+function accumulateOurIndexerWindow(recs: IARec[]): void {
+  for (const r of recs) {
+    const wallet = (r.indexer_wallet ?? "").toLowerCase();
+    if (!OUR_INDEXERS.includes(wallet)) continue;
+    const queries = r.query_count ?? 0;
+    const key = `${r.subgraph_deployment_ipfs_hash}|${r.chain}|${wallet}`;
+    const totals = cumOurIndexerTotals.get(key) ?? {
+      queries: 0,
+      successfulQueries: 0,
+      feesGrt: 0,
+      latencySecondsSum: 0,
+      blocksBehindSum: 0,
+    };
+    totals.queries += queries;
+    totals.successfulQueries += r.num_indexer_200_responses
+      ?? queries * (r.proportion_indexer_200_responses ?? 0);
+    totals.feesGrt += r.total_query_fees ?? 0;
+    totals.latencySecondsSum += queries * (r.avg_indexer_latency_ms ?? 0) / 1000;
+    totals.blocksBehindSum += queries * (r.avg_indexer_blocks_behind ?? 0);
+    cumOurIndexerTotals.set(key, totals);
+  }
+}
+
+function clearOurIndexerTotals(): void {
+  cumOurIndexerTotals.clear();
+}
+
 const esc = (s: unknown) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 const lbl3 = (dep: string, chain: string) =>
   `deployment="${esc(dep)}",name="${esc(names[dep] ?? "")}",chain="${esc(chain)}"`;
@@ -166,6 +205,25 @@ function render(qrRecs: QRec[], iaRecs: IARec[]): string {
   for (const [k, v] of cumFees) {
     const [dep, chain, gw] = k.split("|");
     out.push(`graph_qos_query_fees_grt_total{${lbl3(dep!, chain!)},gateway="${esc(gw)}"} ${v}`);
+  }
+
+  // ── tracked-wallet cumulative counters (range-safe macro metrics) ──
+  help("graph_qos_our_indexer_queries_total", "counter", "cumulative gateway queries routed to a tracked indexer per deployment");
+  help("graph_qos_our_indexer_successful_queries_total", "counter", "cumulative successful gateway queries for a tracked indexer per deployment");
+  help("graph_qos_our_indexer_query_fees_grt_total", "counter", "cumulative gateway query fees earned by a tracked indexer per deployment");
+  help("graph_qos_our_indexer_latency_seconds_sum", "counter", "cumulative query-weighted gateway latency seconds for a tracked indexer per deployment");
+  help("graph_qos_our_indexer_blocks_behind_sum", "counter", "cumulative query-weighted blocks-behind for a tracked indexer per deployment");
+  for (const [k, totals] of cumOurIndexerTotals) {
+    const [dep, chain, wallet] = k.split("|");
+    const iname = indexerNames[wallet!] ?? "";
+    const labels = `${lbl3(dep!, chain!)},indexer="${esc(wallet)}",indexer_name="${esc(iname)}"`;
+    out.push(
+      `graph_qos_our_indexer_queries_total{${labels}} ${totals.queries}`,
+      `graph_qos_our_indexer_successful_queries_total{${labels}} ${totals.successfulQueries}`,
+      `graph_qos_our_indexer_query_fees_grt_total{${labels}} ${totals.feesGrt}`,
+      `graph_qos_our_indexer_latency_seconds_sum{${labels}} ${totals.latencySecondsSum}`,
+      `graph_qos_our_indexer_blocks_behind_sum{${labels}} ${totals.blocksBehindSum}`,
+    );
   }
 
   // ── indexer_attempt: network view (ALL) + per-indexer detail + our rank (tracked) ──
@@ -285,7 +343,13 @@ async function refresh(): Promise<void> {
       }
     }
     if (qr.length && qr[0]!.ts > lastEpoch) lastEpoch = qr[0]!.ts;
-    // 2. current-window gauges from the newest payload of each topic.
+    // 2. Accumulate every NEW indexer_attempt window for tracked-wallet range counters.
+    for (const w of ia) {
+      if (w.ts <= lastIaEpoch) break;
+      accumulateOurIndexerWindow(await fetchIpfs<IARec>(w.hash));
+    }
+    if (ia.length && ia[0]!.ts > lastIaEpoch) lastIaEpoch = ia[0]!.ts;
+    // 3. current-window gauges from the newest payload of each topic.
     const qrRecs = qr.length ? await fetchIpfs<QRec>(qr[0]!.hash) : [];
     const iaRecs = ia.length ? await fetchIpfs<IARec>(ia[0]!.hash) : [];
     lastGood = render(qrRecs, iaRecs);
@@ -307,7 +371,7 @@ function body(): string {
 
 // Pure functions exported for unit tests (bun test). Only start the poller + HTTP server when run
 // as the entrypoint, so importing this module in a test has no side effects.
-export { decodeBytesArg, render };
+export { accumulateOurIndexerWindow, clearOurIndexerTotals, decodeBytesArg, render };
 
 if (import.meta.main) {
   if (!RPC_URL) { console.error("RPC_URL is required (full JSON-RPC endpoint)"); process.exit(1); }

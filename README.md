@@ -55,6 +55,9 @@ answer to "why are/aren't we in the gateway's top-3 here?"). The exporter derive
 | `graph_qos_our_query_rank` / `graph_qos_our_latency_rank` | primary tracked indexer's rank (legacy single-series metrics; 1 = best) |
 | `graph_qos_our_avg_latency_ms` / `graph_qos_our_avg_blocks_behind` | our gateway-measured values |
 | `graph_qos_our_indexer_*{indexer,indexer_name}` | the same count/share/rank/latency/blocks/fees metrics for every wallet in `OUR_INDEXERS` |
+| `graph_qos_our_indexer_queries_total` / `…_successful_queries_total` | cumulative tracked-wallet traffic and successful responses for range-safe macro calculations |
+| `graph_qos_our_indexer_query_fees_grt_total` | cumulative tracked-wallet query fees |
+| `graph_qos_our_indexer_latency_seconds_sum` / `…_blocks_behind_sum` | cumulative query-weighted latency and blocks-behind sums; divide their `increase()` by query `increase()` |
 
 Everything is exposed by default — `graph_qos_indexer_*` (per-indexer) and `graph_qos_our_*` (rank
 vs competitors) are emitted for **every** deployment/indexer the gateway reports (~30k series). No
