@@ -1,7 +1,12 @@
 // Unit tests for the pure logic — run on every commit (bun test). No network / no server:
 // importing src/index.ts is side-effect-free (server + poll loop are guarded by import.meta.main).
 import { expect, test, describe } from "bun:test";
-import { decodeBytesArg, render } from "../src/index.ts";
+import {
+  accumulateOurIndexerWindow,
+  clearOurIndexerTotals,
+  decodeBytesArg,
+  render,
+} from "../src/index.ts";
 
 // ABI-encode a UTF-8 string as a single `bytes` arg behind a 4-byte selector, mimicking
 // submitQoSPayload(bytes) calldata: selector + offset(0x20) + length + right-padded data.
@@ -39,7 +44,8 @@ const ia = (wallet: string, o: Partial<any>) => ({
   subgraph_deployment_ipfs_hash: "QmDep", chain: "mainnet", indexer_wallet: wallet, indexer_url: "https://x/",
   query_count: 0, avg_query_fee: 0.001, max_query_fee: 0.002, total_query_fees: 0.5,
   avg_indexer_latency_ms: 200, max_indexer_latency_ms: 900, stdev_indexer_latency_ms: 30,
-  proportion_indexer_200_responses: 1, avg_indexer_blocks_behind: 0.3, max_indexer_blocks_behind: 1, ...o,
+  num_indexer_200_responses: 0, proportion_indexer_200_responses: 1,
+  avg_indexer_blocks_behind: 0.3, max_indexer_blocks_behind: 1, ...o,
 });
 const OUR = "0x3717cef8020bddee7a18f4efb2bfa88fefdcb1bc"; // matches default OUR_INDEXER
 const PINAX1 = "0xedca8740873152ff30a2696add66d1ab41882beb";
@@ -105,6 +111,50 @@ describe("multi-indexer tracking", () => {
     ]);
     expect(secondaryOnly).toMatch(/graph_qos_our_indexer_query_rank\{[^}]*indexer="0xedca[^}]*\} 2/);
     expect(secondaryOnly).not.toMatch(/graph_qos_our_query_rank\{/);
+  });
+});
+
+describe("tracked-wallet cumulative macro counters", () => {
+  test("accumulates both Pinax wallets and ignores other indexers", () => {
+    clearOurIndexerTotals();
+    accumulateOurIndexerWindow([
+      ia(OUR, {
+        query_count: 100,
+        num_indexer_200_responses: 98,
+        total_query_fees: 0.1,
+        avg_indexer_latency_ms: 250,
+        avg_indexer_blocks_behind: 2,
+      }),
+      ia(PINAX1, {
+        query_count: 300,
+        num_indexer_200_responses: 297,
+        total_query_fees: 0.3,
+        avg_indexer_latency_ms: 400,
+        avg_indexer_blocks_behind: 4,
+      }),
+      ia("0xaaa", { query_count: 500, num_indexer_200_responses: 500 }),
+    ]);
+    const out = render([], []);
+    expect(out).toMatch(/graph_qos_our_indexer_queries_total\{[^}]*indexer="0x3717[^}]*\} 100/);
+    expect(out).toMatch(/graph_qos_our_indexer_queries_total\{[^}]*indexer="0xedca[^}]*\} 300/);
+    expect(out).toMatch(/graph_qos_our_indexer_successful_queries_total\{[^}]*indexer="0x3717[^}]*\} 98/);
+    expect(out).toMatch(/graph_qos_our_indexer_query_fees_grt_total\{[^}]*indexer="0xedca[^}]*\} 0\.3/);
+    expect(out).toMatch(/graph_qos_our_indexer_latency_seconds_sum\{[^}]*indexer="0x3717[^}]*\} 25/);
+    expect(out).toMatch(/graph_qos_our_indexer_blocks_behind_sum\{[^}]*indexer="0xedca[^}]*\} 1200/);
+    expect(out).not.toMatch(/graph_qos_our_indexer_queries_total\{[^}]*indexer="0xaaa/);
+    clearOurIndexerTotals();
+  });
+
+  test("falls back to success proportion when the response count is absent", () => {
+    clearOurIndexerTotals();
+    accumulateOurIndexerWindow([
+      ia(OUR, { query_count: 80, num_indexer_200_responses: undefined,
+        proportion_indexer_200_responses: 0.975 }),
+    ]);
+    expect(render([], [])).toMatch(
+      /graph_qos_our_indexer_successful_queries_total\{[^}]*indexer="0x3717[^}]*\} 78/,
+    );
+    clearOurIndexerTotals();
   });
 });
 
