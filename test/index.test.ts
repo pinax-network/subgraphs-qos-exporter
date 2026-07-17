@@ -60,9 +60,9 @@ describe("render", () => {
     ],
   );
   test("emits current-window gateway gauges incl. the newly-added fields", () => {
-    // QmDep has no deployments.json entry → name falls back to the network-qualified
-    // `<chain>/<short-hash>` (never a bare hash or empty), so dashboards stay readable.
-    expect(out).toContain('graph_qos_query_count{deployment="QmDep",name="mainnet/QmDep",chain="mainnet",gateway="0xGW"} 100');
+    // QmDep has no deployments.json entry → name falls back to a short deployment ID
+    // (truncated hash), not the full IPFS hash; chain stays in its own label.
+    expect(out).toContain('graph_qos_query_count{deployment="QmDep",name="QmDep",chain="mainnet",gateway="0xGW"} 100');
     expect(out).toContain("graph_qos_stdev_gateway_latency_ms{");
     expect(out).toContain("graph_qos_max_query_fee_grt{");
     expect(out).toContain("graph_qos_most_recent_query_seconds{");
