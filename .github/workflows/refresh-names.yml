@@ -3,8 +3,8 @@
 # generated map changes, this commits it to main, which triggers docker.yml to rebuild + publish a
 # fresh image (bump the tag in k8s-subgraphs qos-exporter/base/deployment.yaml to roll it out).
 #
-# Requires repo secret NETWORK_SUBGRAPH_URL = a Graph Network subgraph gateway endpoint incl. key,
-# e.g. https://gateway.thegraph.com/api/<key>/subgraphs/id/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp
+# Requires repo secret GRAPH_GATEWAY_API_KEY = a Graph gateway API key with billing balance; the
+# generator builds the URL against the fixed Graph Network Arbitrum subgraph id (overridable via NETWORK_SUBGRAPH_ID/NETWORK_SUBGRAPH_URL).
 name: refresh-names
 
 on:
@@ -24,10 +24,12 @@ jobs:
           bun-version: latest
       - name: Regenerate deployments.json
         env:
-          NETWORK_SUBGRAPH_URL: ${{ secrets.NETWORK_SUBGRAPH_URL }}
+          # Just the gateway key; the script builds the URL against the fixed Graph Network
+          # Arbitrum subgraph id (DZz4kDT…). A ~28k-deployment scan is micro-GRT.
+          GRAPH_GATEWAY_API_KEY: ${{ secrets.GRAPH_GATEWAY_API_KEY }}
         run: |
-          if [ -z "$NETWORK_SUBGRAPH_URL" ]; then
-            echo "NETWORK_SUBGRAPH_URL secret not set — skipping" >&2; exit 0
+          if [ -z "$GRAPH_GATEWAY_API_KEY" ]; then
+            echo "GRAPH_GATEWAY_API_KEY secret not set — skipping" >&2; exit 0
           fi
           bun install
           bun run scripts/gen-deployments.ts > deployments.json.new
