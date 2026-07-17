@@ -1,13 +1,17 @@
 // gen-deployments.ts — regenerate deployments.json: { "<ipfs_hash>": "<subgraph display name>" }
 // for EVERY deployment on the Graph Network (not just each subgraph's current version), so newly
 // synced / older-version deployments resolve a name without hand-editing this file. Run OUT-OF-BAND
-// (the scheduled refresh-names.yml workflow, or manually):
-//   NETWORK_SUBGRAPH_URL="https://gateway.thegraph.com/api/<key>/subgraphs/id/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp" \
-//     bun run scripts/gen-deployments.ts > deployments.json
+// (the scheduled refresh-names.yml workflow, or manually). Provide EITHER just the gateway key:
+//   GRAPH_GATEWAY_API_KEY=<key> bun run scripts/gen-deployments.ts > deployments.json
+// or a full endpoint (e.g. an internal GNArb copy) to override:
+//   NETWORK_SUBGRAPH_URL="https://.../subgraphs/id/QmT329…" bun run scripts/gen-deployments.ts > …
 //
 // The exporter only READS the result; a missing hash falls back to a short deployment id.
-const URL_ = process.env.NETWORK_SUBGRAPH_URL;
-if (!URL_) { console.error("NETWORK_SUBGRAPH_URL required (a Graph Network subgraph GraphQL endpoint)"); process.exit(1); }
+const NETWORK_SUBGRAPH_ID = process.env.NETWORK_SUBGRAPH_ID ?? "DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp";
+const KEY = process.env.GRAPH_GATEWAY_API_KEY;
+const URL_ = process.env.NETWORK_SUBGRAPH_URL
+  ?? (KEY ? `https://gateway.thegraph.com/api/${KEY}/subgraphs/id/${NETWORK_SUBGRAPH_ID}` : undefined);
+if (!URL_) { console.error("Set GRAPH_GATEWAY_API_KEY (gateway key) or NETWORK_SUBGRAPH_URL (full endpoint)"); process.exit(1); }
 
 async function gql(query: string): Promise<any> {
   for (let attempt = 0; ; attempt++) {
