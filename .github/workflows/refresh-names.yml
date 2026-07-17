@@ -1,0 +1,49 @@
+# Weekly regeneration of deployments.json from the live Graph Network subgraph, so newly published
+# / synced deployments pick up their display name without anyone hand-editing the file. When the
+# generated map changes, this commits it to main, which triggers docker.yml to rebuild + publish a
+# fresh image (bump the tag in k8s-subgraphs qos-exporter/base/deployment.yaml to roll it out).
+#
+# Requires repo secret NETWORK_SUBGRAPH_URL = a Graph Network subgraph gateway endpoint incl. key,
+# e.g. https://gateway.thegraph.com/api/<key>/subgraphs/id/DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp
+name: refresh-names
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Regenerate deployments.json
+        env:
+          NETWORK_SUBGRAPH_URL: ${{ secrets.NETWORK_SUBGRAPH_URL }}
+        run: |
+          if [ -z "$NETWORK_SUBGRAPH_URL" ]; then
+            echo "NETWORK_SUBGRAPH_URL secret not set — skipping" >&2; exit 0
+          fi
+          bun install
+          bun run scripts/gen-deployments.ts > deployments.json.new
+          # Only replace if the new file is non-trivial (guard against an empty/failed run).
+          if [ "$(wc -c < deployments.json.new)" -lt 1000 ]; then
+            echo "generated file too small ($(wc -c < deployments.json.new) bytes) — aborting" >&2; exit 1
+          fi
+          mv deployments.json.new deployments.json
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- deployments.json; then
+            echo "deployments.json unchanged — nothing to commit"; exit 0
+          fi
+          git config user.name  "pinax-bot"
+          git config user.email "ops@pinax.network"
+          n=$(python3 -c "import json;print(len(json.load(open('deployments.json'))))" 2>/dev/null || echo "?")
+          git add deployments.json
+          git commit -m "chore: refresh deployments.json name map ($n named deployments)"
+          git push
