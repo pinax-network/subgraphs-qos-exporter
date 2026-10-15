@@ -1,5 +1,5 @@
 # Zero-dependency Bun app — no install step needed (only global fetch + Buffer).
-FROM oven/bun:1.1-alpine
+FROM oven/bun:1.4.3-alpine
 
 WORKDIR /app
 COPY src ./src
