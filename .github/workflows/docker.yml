@@ -22,11 +22,9 @@ jobs:
 
       # Type-check + unit-test the app on every PR/push (cheap gate before building the image).
       - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install
+      - run: bun install --frozen-lockfile
       - name: Type-check
-        run: bunx tsc --noEmit
+        run: bunx --no-install tsc --noEmit
       - name: Test
         run: bun test
 
